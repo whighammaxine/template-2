@@ -1,54 +1,106 @@
-import { auth, db, storage } from "./firebase";
-import {
-  signOut,
-  GoogleAuthProvider,
-  signInWithPopup,
-} from "firebase/auth";
-import {
-  collection,
-  addDoc,
-  getDocs,
-  doc,
-  updateDoc,
-  deleteDoc,
-} from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { auth, firestore, storage, GoogleSignin, FirebaseAuthTypes } from './firebase';
+import { Alert } from 'react-native';
 
-// Auth functions
-export const logoutUser = () => signOut(auth);
-
-export const signInWithGoogle = async () => {
-  const provider = new GoogleAuthProvider();
+// Authentication utilities
+export const signInWithGoogle = async (): Promise<FirebaseAuthTypes.UserCredential | null> => {
   try {
-    const result = await signInWithPopup(auth, provider);
-    return result.user;
+    const { idToken } = await GoogleSignin.signIn();
+    const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+    return auth().signInWithCredential(googleCredential);
   } catch (error) {
-    console.error("Error signing in with Google", error);
+    console.error('Google Sign-In Error:', error);
+    Alert.alert('Error', 'Failed to sign in with Google');
+    return null;
+  }
+};
+
+export const signOut = async (): Promise<void> => {
+  try {
+    await GoogleSignin.signOut();
+    await auth().signOut();
+  } catch (error) {
+    console.error('Sign Out Error:', error);
+    Alert.alert('Error', 'Failed to sign out');
+  }
+};
+
+// Firestore utilities
+export const createDocument = async (
+  collection: string,
+  data: any,
+  id?: string
+): Promise<string> => {
+  try {
+    if (id) {
+      await firestore().collection(collection).doc(id).set(data);
+      return id;
+    } else {
+      const doc = await firestore().collection(collection).add(data);
+      return doc.id;
+    }
+  } catch (error) {
+    console.error('Create Document Error:', error);
     throw error;
   }
 };
 
-// Firestore functions
-export const addDocument = (collectionName: string, data: any) =>
-  addDoc(collection(db, collectionName), data);
-
-export const getDocuments = async (collectionName: string) => {
-  const querySnapshot = await getDocs(collection(db, collectionName));
-  return querySnapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  }));
+export const updateDocument = async (
+  collection: string,
+  id: string,
+  data: any
+): Promise<void> => {
+  try {
+    await firestore().collection(collection).doc(id).update(data);
+  } catch (error) {
+    console.error('Update Document Error:', error);
+    throw error;
+  }
 };
 
-export const updateDocument = (collectionName: string, id: string, data: any) =>
-  updateDoc(doc(db, collectionName, id), data);
+export const deleteDocument = async (
+  collection: string,
+  id: string
+): Promise<void> => {
+  try {
+    await firestore().collection(collection).doc(id).delete();
+  } catch (error) {
+    console.error('Delete Document Error:', error);
+    throw error;
+  }
+};
 
-export const deleteDocument = (collectionName: string, id: string) =>
-  deleteDoc(doc(db, collectionName, id));
+// Storage utilities
+export const uploadFile = async (
+  path: string,
+  uri: string,
+  onProgress?: (progress: number) => void
+): Promise<string> => {
+  try {
+    const reference = storage().ref(path);
+    const task = reference.putFile(uri);
 
-// Storage functions
-export const uploadFile = async (file: File, path: string) => {
-  const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file);
-  return getDownloadURL(storageRef);
+    if (onProgress) {
+      task.on('state_changed', snapshot => {
+        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        onProgress(progress);
+      });
+    }
+
+    await task;
+    const url = await reference.getDownloadURL();
+    return url;
+  } catch (error) {
+    console.error('Upload File Error:', error);
+    throw error;
+  }
+};
+
+export const deleteFile = async (path: string): Promise<void> => {
+  try {
+    const reference = storage().ref(path);
+    await reference.delete();
+  } catch (error) {
+    console.error('Delete File Error:', error);
+    throw error;
+  }
 };
